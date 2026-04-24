@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DE-964 · Redash Query Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060d1a;
+    --surface: #0c1829;
+    --surface2: #111f35;
+    --border: #1a2f4a;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --warn: #ffd166;
+    --danger: #ff4757;
+    --success: #2ed573;
+    --text: #e8f4f8;
+    --muted: #5a7a96;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 28px;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,212,255,0.07) 0%, transparent 60%),
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(26,47,74,0.3) 39px, rgba(26,47,74,0.3) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(26,47,74,0.2) 39px, rgba(26,47,74,0.2) 40px);
+  }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+  }
+  .header-left h1 {
+    font-family: var(--mono); font-size: 22px; font-weight: 700;
+    letter-spacing: -0.5px; color: var(--text);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .ticket { font-family: var(--mono); font-size: 11px; font-weight: 700;
+    background: linear-gradient(135deg, #1e3a5f, #0c2040);
+    border: 1px solid var(--accent); color: var(--accent);
+    padding: 3px 10px; border-radius: 4px; letter-spacing: 1px; }
+  .header-left p { font-size: 12px; color: var(--muted); margin-top: 5px; font-weight: 400; }
+  .refresh-badge {
+    font-family: var(--mono); font-size: 10px; color: var(--success);
+    background: rgba(46,213,115,0.08); border: 1px solid rgba(46,213,115,0.2);
+    padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 6px;
+  }
+  .refresh-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--success); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  /* KPI CARDS */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+    position: relative; overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .kpi:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .kpi::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--kpi-color, var(--accent)), transparent);
+  }
+  .kpi.warn { --kpi-color: var(--warn); }
+  .kpi.danger { --kpi-color: var(--danger); }
+  .kpi.success { --kpi-color: var(--success); }
+  .kpi-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+  .kpi-value { font-family: var(--mono); font-size: 36px; font-weight: 700;
+    color: var(--kpi-color, var(--accent)); line-height: 1; }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* CHART GRID */
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .panel-title {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--dot-color, var(--accent));
+    box-shadow: 0 0 6px var(--dot-color, var(--accent));
+  }
+  .panel-title.warn-title .dot { --dot-color: var(--warn); }
+  .panel-title.danger-title .dot { --dot-color: var(--danger); }
+  .panel-title.success-title .dot { --dot-color: var(--success); }
+  canvas { width: 100% !important; }
+
+  /* TABLE */
+  .table-wrap { overflow-y: auto; max-height: 320px; }
+  .table-wrap::-webkit-scrollbar { width: 4px; }
+  .table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    text-align: left; padding: 8px 10px;
+    color: var(--muted); font-weight: 600; letter-spacing: 0.5px; font-size: 10px; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; z-index: 1;
+  }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid rgba(26,47,74,0.5); color: var(--text); }
+  tbody tr:hover td { background: var(--surface2); }
+  .id-cell { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .name-cell { font-weight: 500; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner-cell { font-size: 11px; color: var(--muted); }
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px; letter-spacing: 0.5px;
+  }
+  .pill-1h { background: rgba(255,71,87,0.15); color: var(--danger); border: 1px solid rgba(255,71,87,0.3); }
+  .pill-2h { background: rgba(255,107,53,0.15); color: var(--accent2); border: 1px solid rgba(255,107,53,0.3); }
+  .pill-3h { background: rgba(255,209,102,0.1); color: var(--warn); border: 1px solid rgba(255,209,102,0.2); }
+  .pill-4h { background: rgba(0,212,255,0.08); color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+  .pill-6h { background: rgba(0,212,255,0.06); color: #5ab4cc; border: 1px solid rgba(0,212,255,0.15); }
+  .pill-12h { background: rgba(90,122,150,0.15); color: var(--muted); border: 1px solid rgba(90,122,150,0.2); }
+  .fail-badge { font-family: var(--mono); font-size: 10px; color: var(--danger); }
+
+  /* HORIZONTAL BAR (user chart canvas replacement) */
+  .hbar-list { display: flex; flex-direction: column; gap: 8px; }
+  .hbar-row { display: flex; align-items: center; gap: 10px; }
+  .hbar-name { font-size: 11px; color: var(--text); width: 115px; flex-shrink: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { flex: 1; height: 10px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .hbar-fill { height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #00d4ff, #0085a1);
+    transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .hbar-fill.top { background: linear-gradient(90deg, var(--warn), #e8a000); }
+  .hbar-val { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 28px; text-align: right; }
+
+  /* FOOTER */
+  .footer { margin-top: 20px; display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; color: var(--muted); font-family: var(--mono); flex-wrap: wrap; gap: 8px; }
+  .footer a { color: var(--accent); text-decoration: none; }
+
+  /* ANIMATIONS */
+  .panel { animation: fadeUp 0.5s ease both; }
+  .kpi { animation: fadeUp 0.4s ease both; }
+  .kpi:nth-child(1){animation-delay:0.05s}
+  .kpi:nth-child(2){animation-delay:0.1s}
+  .kpi:nth-child(3){animation-delay:0.15s}
+  .kpi:nth-child(4){animation-delay:0.2s}
+  @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+
+  @media(max-width:900px){
+    .kpis{grid-template-columns:1fr 1fr;}
+    .grid{grid-template-columns:1fr;}
+    .grid2{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>
+      <span class="ticket">DE-964</span>
+      Redash Scheduled Query Monitor
+    </h1>
+    <p>Track scheduled query frequency, count, growth rate &amp; high-frequency flags · Source: Redash PostgreSQL via BigQuery External Query</p>
+  </div>
+  <div class="refresh-badge">REFRESHES DAILY · LIVE DATA</div>
+</div>
+
+<!-- KPI ROW -->
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Total Scheduled Queries</div>
+    <div class="kpi-value">901</div>
+    <div class="kpi-sub">Active, non-archived</div>
+  </div>
+  <div class="kpi warn">
+    <div class="kpi-label">High-Frequency Queries</div>
+    <div class="kpi-value">93</div>
+    <div class="kpi-sub">Running more than once/day</div>
+  </div>
+  <div class="kpi danger">
+    <div class="kpi-label">Hourly Queries</div>
+    <div class="kpi-value">20</div>
+    <div class="kpi-sub">Interval ≤ 3,600s — highest load</div>
+  </div>
+  <div class="kpi success">
+    <div class="kpi-label">Active Scheduling Users</div>
+    <div class="kpi-value">20</div>
+    <div class="kpi-sub">Users with ≥1 scheduled query</div>
+  </div>
+</div>
+
+<!-- ROW 1: Growth + Frequency Donut -->
+<div class="grid">
+  <div class="panel">
+    <div class="panel-title success-title"><span class="dot"></span>Monthly Scheduled Query Growth</div>
+    <canvas id="growthChart" height="200"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-title warn-title"><span class="dot"></span>Frequency Distribution</div>
+    <canvas id="freqChart" height="200"></canvas>
+  </div>
+</div>
+
+<!-- ROW 2: Top Users + Schedule Failures -->
+<div class="grid2">
+  <div class="panel">
+    <div class="panel-title warn-title"><span class="dot"></span>Top 15 Users by Scheduled Queries</div>
+    <div class="hbar-list" id="userBars"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title"><span class="dot"></span>Cumulative Growth Over Time</div>
+    <canvas id="cumulChart" height="270"></canvas>
+  </div>
+</div>
+
+<!-- ROW 3: Flagged Table -->
+<div class="panel">
+  <div class="panel-title danger-title">
+    <span class="dot"></span>
+    Flagged Queries — Running More Than Once Per Day (93 total)
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Query Name</th>
+          <th>Owner</th>
+          <th>Interval</th>
+          <th>Freq Tag</th>
+          <th>Failures</th>
+        </tr>
+      </thead>
+      <tbody id="flagTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  <span>DE-964 · Redash Scheduled Query Dashboard · Data Engineering · Carsome</span>
+  <span>Source: <code>cs-prod-data-01.asia-southeast1.redash</code> · Tables: <code>queries</code>, <code>users</code></span>
+</div>
+
+<script>
+Chart.defaults.color = '#5a7a96';
+Chart.defaults.borderColor = '#1a2f4a';
+Chart.defaults.font.family = "'DM Sans', sans-serif";
+
+// ── GROWTH CHART ──────────────────────────────────────────────
+const months = ['Aug\'25','Sep\'25','Oct\'25','Nov\'25','Dec\'25','Jan\'26','Feb\'26','Mar\'26','Apr\'26'];
+const monthlyCounts = [10,5,109,409,99,42,41,46,53];
+new Chart(document.getElementById('growthChart'), {
+  type: 'bar',
+  data: {
+    labels: months,
+    datasets: [{
+      label: 'New Scheduled Queries',
+      data: monthlyCounts,
+      backgroundColor: monthlyCounts.map(v =>
+        v >= 300 ? 'rgba(255,71,87,0.7)' :
+        v >= 80  ? 'rgba(255,209,102,0.7)' :
+                   'rgba(0,212,255,0.5)'),
+      borderColor: monthlyCounts.map(v =>
+        v >= 300 ? '#ff4757' :
+        v >= 80  ? '#ffd166' :
+                   '#00d4ff'),
+      borderWidth: 1, borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          afterLabel: ctx => ctx.parsed.y >= 300 ? '🔴 Spike — likely onboarding event' :
+                              ctx.parsed.y >= 80  ? '⚠️ Elevated activity' : ''
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: 'rgba(26,47,74,0.5)' }, ticks: { font: { size: 11 } } },
+      y: { grid: { color: 'rgba(26,47,74,0.5)' }, ticks: { font: { size: 11 } },
+           title: { display: true, text: 'Queries Added', color: '#5a7a96', font: { size: 10 } } }
+    }
+  }
+});
+
+// ── FREQUENCY DONUT ───────────────────────────────────────────
+new Chart(document.getElementById('freqChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Hourly (1h)', 'Every 2h', 'Every 3h', 'Every 4h', 'Every 6h', 'Every 12h', 'Daily'],
+    datasets: [{
+      data: [20, 11, 11, 9, 29, 11, 723],
+      backgroundColor: ['#ff4757','#ff6b35','#ffd166','#00d4ff','#2ed573','#5a7a96','#1a2f4a'],
+      borderColor: '#060d1a', borderWidth: 3, hoverOffset: 8
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    cutout: '62%',
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: { boxWidth: 10, padding: 12, font: { size: 11 } }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.parsed} queries`
+        }
+      }
+    }
+  }
+});
+
+// ── USER BAR LIST ─────────────────────────────────────────────
+const users = [
+  ['Jeft Loong H.T.', 133],['Yuganraj Sadian', 81],['Zhi Shen Aung', 79],
+  ['Raden Farah H.', 72],['Lee Wei Han', 68],['Nur Athirah Q.', 67],
+  ['Tan Eng Teck', 54],['Nurul Izzati Z.', 42],['Peh Khee Shean', 41],
+  ['Ruby Dobby', 34],['Muhd Fachrurrozi', 26],['Ravinprasad R.', 25],
+  ['Lester Tan K.T.', 22],['Chew Chen Hin', 19],['Ngo Xuan Thanh', 9]
+];
+const maxU = 133;
+const container = document.getElementById('userBars');
+users.forEach(([name, val], i) => {
+  const pct = Math.round(val / maxU * 100);
+  container.innerHTML += `
+    <div class="hbar-row">
+      <span class="hbar-name" title="${name}">${name}</span>
+      <div class="hbar-track">
+        <div class="hbar-fill${i === 0 ? ' top' : ''}" style="width:${pct}%"></div>
+      </div>
+      <span class="hbar-val">${val}</span>
+    </div>`;
+});
+
+// ── CUMULATIVE CHART ──────────────────────────────────────────
+const counts = [10,5,109,409,99,42,41,46,53];
+let cumul = []; let run = 0;
+counts.forEach(c => { run += c; cumul.push(run); });
+new Chart(document.getElementById('cumulChart'), {
+  type: 'line',
+  data: {
+    labels: months,
+    datasets: [{
+      label: 'Cumulative Scheduled Queries',
+      data: cumul,
+      borderColor: '#00d4ff',
+      backgroundColor: 'rgba(0,212,255,0.08)',
+      borderWidth: 2, pointRadius: 5,
+      pointBackgroundColor: '#00d4ff',
+      pointHoverRadius: 7, fill: true, tension: 0.4
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: 'rgba(26,47,74,0.5)' }, ticks: { font: { size: 11 } } },
+      y: { grid: { color: 'rgba(26,47,74,0.5)' }, ticks: { font: { size: 11 } },
+           title: { display: true, text: 'Total Queries', color: '#5a7a96', font: { size: 10 } } }
+    }
+  }
+});
+
+// ── FLAGGED TABLE ─────────────────────────────────────────────
+const flagged = [
+  [1628,'[CCL_ID] CCL_Photo_Listing_New_v.03','Raden Farah H.',3600,0],
+  [1333,'Pending Payment Daily Tracking v2','Tan Eng Teck',3600,0],
+  [914,'[C2B-Prod] Hourly Draw D-1 Assigned','Tan Eng Teck',3600,0],
+  [889,'[C2B-Prod] Hourly Draw v2','Tan Eng Teck',3600,0],
+  [766,'Buyout Not Assigned','Joane Tan',3600,0],
+  [569,'[Ravin] CCL_Photo_Listing_New_v.03','Ravinprasad R.',3600,0],
+  [476,'Aging Payment','Joane Tan',3600,0],
+  [475,'Payment Collection (Payment Date)','Joane Tan',3600,0],
+  [470,'ODO Upload Checker','Joane Tan',3600,0],
+  [469,'[BD] Daily ODO Tracking','Joane Tan',3600,0],
+  [468,'[Overall] Daily ODO Tracking','Joane Tan',3600,0],
+  [465,'[MTD] Sales ODO','Joane Tan',3600,0],
+  [408,'Seller Payment (T+48) Tracking','Jeft Loong H.T.',3600,0],
+  [360,'CARSOME First Pickup Location by B2C','Jeft Loong H.T.',3600,0],
+  [350,'Pending Collection Daily Tracking','Jeft Loong H.T.',3600,0],
+  [349,'Pending Payment Daily Tracking','Jeft Loong H.T.',3600,0],
+  [270,'[NCD] Hourly Exec Perf Mid-Day Update','Zhi Shen Aung',3600,0],
+  [177,'Dealers Activity','Peh Khee Shean',3600,0],
+  [154,'[Dev-B2C] ID Consultation Assessment','Tan Eng Teck',3600,17],
+  [152,'[Dev-B2C] ID Appointment Assessment','Tan Eng Teck',3600,17],
+  [1151,'C2B TH 2026','Vongsakorn Gun',7200,0],
+  [1025,'[WH] Logistics Performance V2.0','Lee Wei Han',7200,0],
+  [978,'Pending Inbound - Logistics v2','Yuganraj Sadian',7200,0],
+  [956,'Pending Outbound - Logistics','Yuganraj Sadian',7200,0],
+  [620,'C2B TH 2025','Sirinat Phoousaha',7200,0],
+  [424,'Outlet Financier & Order Tracking','Jeft Loong H.T.',7200,0],
+  [321,'Retail Performance Mid-Day Update II','Jeft Loong H.T.',7200,0],
+  [295,'Advance Payment Stock Collected','Jeft Loong H.T.',7200,0],
+  [293,'Stock Holding [Pending Pymt to Seller]','Jeft Loong H.T.',7200,0],
+  [97,'OMP List Ref','Jeft Loong H.T.',7200,0],
+  [96,'Bidded Ref for OMP','Jeft Loong H.T.',7200,0],
+  [1650,'ID Backlog Tracking working 1','Jeft Loong H.T.',10800,0],
+  [1292,'Self Serve Project','Jeft Loong H.T.',10800,0],
+  [824,'Dealer QC-Form','Jeft Loong H.T.',10800,0],
+  [671,'C2B Retail Branch Daily Inspection','Jeft Loong H.T.',10800,0],
+  [263,'[Wholesale CS] Purchase Performance','Zhi Shen Aung',10800,0],
+  [288,'[ID] C2B Supply & Demand RD1','Jeft Loong H.T.',10800,0],
+  [1431,'[Emily] Daily Fresh Leads v2','Tan Eng Teck',14400,0],
+  [983,'2025 Logistics Perf V2.0 revised','Yuganraj Sadian',14400,0],
+  [703,'2025 Logistics Performance V1.0','Yuganraj Sadian',14400,0],
+  [495,'[C2B] Trailer Fee Detail','Zhi Shen Aung',14400,0],
+  [457,'[B2C] Non Refundable Lead Data','Tan Eng Teck',14400,0],
+  [358,'Full Payment Date','Jeft Loong H.T.',14400,0],
+  [306,'[Prod-B2C] B2C Lead Source Aggregation','Tan Eng Teck',14400,0],
+  [292,'[ID] C2B Wholesales Bidding Perf','Jeft Loong H.T.',14400,0],
+];
+const pillClass = s => s<=3600?'pill-1h':s<=7200?'pill-2h':s<=10800?'pill-3h':s<=14400?'pill-4h':s<=21600?'pill-6h':'pill-12h';
+const pillLabel = s => {
+  const h = s/3600;
+  return h===1?'1h HOURLY':h===2?'2h':h===3?'3h':h===4?'4h':h===6?'6h':'12h';
+};
+const tb = document.getElementById('flagTable');
+flagged.forEach(r => {
+  tb.innerHTML += `
+    <tr>
+      <td class="id-cell">#${r[0]}</td>
+      <td class="name-cell">${r[1]}</td>
+      <td class="owner-cell">${r[2]}</td>
+      <td class="id-cell">${r[3]/3600}h (${r[3].toLocaleString()}s)</td>
+      <td><span class="pill ${pillClass(r[3])}">${pillLabel(r[3])}</span></td>
+      <td>${r[4]>0?`<span class="fail-badge">⚠ ${r[4]}</span>`:
+            `<span style="color:var(--success);font-size:11px">✓ 0</span>`}</td>
+    </tr>`;
+});
+</script>
+</body>
+</html>

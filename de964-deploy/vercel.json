@@ -1,0 +1,6 @@
+{
+  "name": "de964-redash-dashboard",
+  "version": 2,
+  "builds": [{ "src": "index.html", "use": "@vercel/static" }],
+  "routes": [{ "src": "/(.*)", "dest": "/index.html" }]
+}
